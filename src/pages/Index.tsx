@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useMemo, useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -15,14 +15,6 @@ const Index = () => {
   const [timePeriod, setTimePeriod] = useState<'3days' | 'week' | 'month' | 'year'>('week');
   const [expandedEntry, setExpandedEntry] = useState<number | null>(null);
   const { data, isLoading, error, refetch } = useEnergyData();
-
-  useEffect(() => {
-    const interval = setInterval(() => {
-      refetch();
-    }, 5 * 60 * 1000);
-
-    return () => clearInterval(interval);
-  }, [refetch]);
 
   const getColorClass = (score: number) => {
     if (score >= 5) return 'energy-excellent';
@@ -43,65 +35,69 @@ const Index = () => {
     return new Date(dateStr);
   };
 
-  const getFilteredStats = () => {
-    if (!data?.entries) return { good: 0, neutral: 0, bad: 0, average: 0, total: 0 };
-    
-    console.log('All entries:', data.entries.map(e => ({ date: e.date, score: e.score })));
-    
-    let limit: number;
-    
-    switch (timePeriod) {
-      case '3days':
-        limit = 3;
-        break;
-      case 'week':
-        limit = 7;
-        break;
-      case 'month':
-        limit = 30;
-        break;
-      case 'year':
-        limit = 365;
-        break;
-      default:
-        limit = 7;
+  const stats = useMemo(() => {
+    if (!data?.entries) {
+      return { good: 0, neutral: 0, bad: 0, average: 0, total: 0 };
     }
-    
-    // Берём последние N записей
-    const filtered = data.entries.slice(-limit);
-    
-    console.log('Filtered entries:', filtered.length, 'last', limit, 'records');
-    
-    const good = filtered.filter(e => e.score >= 4).length;
-    const neutral = filtered.filter(e => e.score === 3).length;
-    const bad = filtered.filter(e => e.score <= 2).length;
-    const total = filtered.length;
-    const average = total > 0 ? filtered.reduce((sum, e) => sum + e.score, 0) / total : 0;
-    
-    return { good, neutral, bad, average, total };
-  };
 
-  const stats = getFilteredStats();
+    const now = Date.now();
+    const DAY_MS = 24 * 60 * 60 * 1000;
+
+    const cutoffByPeriod: Record<'3days' | 'week' | 'month' | 'year', number> = {
+      '3days': now - 3 * DAY_MS,
+      week: now - 7 * DAY_MS,
+      month: now - 30 * DAY_MS,
+      year: now - 365 * DAY_MS,
+    };
+
+    const cutoff = cutoffByPeriod[timePeriod];
+
+    const filtered = data.entries.filter(entry => {
+      const entryDate = parseDate(entry.date);
+      const timestamp = entryDate.getTime();
+      if (Number.isNaN(timestamp)) {
+        return false;
+      }
+      return timestamp >= cutoff;
+    });
+
+    const totals = filtered.reduce(
+      (acc, entry) => {
+        if (entry.score >= 4) acc.good += 1;
+        else if (entry.score === 3) acc.neutral += 1;
+        else acc.bad += 1;
+
+        acc.scoreSum += entry.score;
+        return acc;
+      },
+      { good: 0, neutral: 0, bad: 0, scoreSum: 0 }
+    );
+
+    const total = filtered.length;
+    const average = total > 0 ? totals.scoreSum / total : 0;
+
+    return { good: totals.good, neutral: totals.neutral, bad: totals.bad, average, total };
+  }, [data?.entries, timePeriod]);
   
   // Отдельная статистика для месячной цели
-  const getMonthlyStats = () => {
-    if (!data?.entries) return { average: 0, total: 0 };
-    
-    const todayMs = Date.now();
-    const cutoffMs = todayMs - (30 * 24 * 60 * 60 * 1000);
-    
-    const monthlyEntries = data.entries.filter(e => {
-      const entryMs = parseDate(e.date).getTime();
-      return entryMs >= cutoffMs;
+  const monthlyStats = useMemo(() => {
+    if (!data?.entries) {
+      return { average: 0, total: 0 };
+    }
+
+    const cutoffMs = Date.now() - 30 * 24 * 60 * 60 * 1000;
+
+    const monthlyEntries = data.entries.filter(entry => {
+      const timestamp = parseDate(entry.date).getTime();
+      return !Number.isNaN(timestamp) && timestamp >= cutoffMs;
     });
-    
+
     const total = monthlyEntries.length;
-    const average = total > 0 ? monthlyEntries.reduce((sum, e) => sum + e.score, 0) / total : 0;
-    
+    const scoreSum = monthlyEntries.reduce((sum, entry) => sum + entry.score, 0);
+    const average = total > 0 ? scoreSum / total : 0;
+
     return { average, total };
-  };
-  
-  const monthlyStats = getMonthlyStats();
+  }, [data?.entries]);
   const recentEntries = data?.entries?.slice(-3).reverse() || [];
 
   return (
