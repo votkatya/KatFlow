@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -15,14 +15,6 @@ const Index = () => {
   const [timePeriod, setTimePeriod] = useState<'3days' | 'week' | 'month' | 'year'>('week');
   const [expandedEntry, setExpandedEntry] = useState<number | null>(null);
   const { data, isLoading, error, refetch } = useEnergyData();
-
-  useEffect(() => {
-    const interval = setInterval(() => {
-      refetch();
-    }, 5 * 60 * 1000);
-
-    return () => clearInterval(interval);
-  }, [refetch]);
 
   const getColorClass = (score: number) => {
     if (score >= 5) return 'energy-excellent';
