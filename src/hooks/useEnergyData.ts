@@ -34,6 +34,6 @@ export const useEnergyData = () => {
       }
       return response.json();
     },
-    refetchInterval: 30000,
+    refetchInterval: 5 * 60 * 1000,
   });
 };
