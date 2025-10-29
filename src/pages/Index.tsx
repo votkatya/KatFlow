@@ -19,11 +19,6 @@ const TIME_PERIOD_WINDOWS: Record<TimePeriod, number> = {
   year: 365 * DAY_MS,
 };
 
-const nowWithinWindow = (timestamp: number, windowSize: number) => {
-  const now = Date.now();
-  return timestamp >= now - windowSize && timestamp <= now;
-};
-
 const parseDate = (dateStr: string): Date => {
   const parts = dateStr.split('.');
   if (parts.length === 3) {
@@ -56,6 +51,7 @@ const Index = () => {
     }
 
     const windowSize = TIME_PERIOD_WINDOWS[timePeriod];
+    const now = Date.now();
 
     return data.entries.filter(entry => {
       const timestamp = parseDate(entry.date).getTime();
@@ -63,7 +59,7 @@ const Index = () => {
         return false;
       }
 
-      return nowWithinWindow(timestamp, windowSize);
+      return timestamp >= now - windowSize && timestamp <= now;
     });
   }, [data?.entries, timePeriod]);
 
@@ -97,9 +93,10 @@ const Index = () => {
     }
 
     const windowSize = TIME_PERIOD_WINDOWS.month;
+    const now = Date.now();
     const relevantEntries = data.entries.filter(entry => {
       const timestamp = parseDate(entry.date).getTime();
-      return !Number.isNaN(timestamp) && nowWithinWindow(timestamp, windowSize);
+      return !Number.isNaN(timestamp) && timestamp >= now - windowSize && timestamp <= now;
     });
 
     const total = relevantEntries.length;
