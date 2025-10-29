@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useMemo, useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -9,20 +9,33 @@ import EnergyTrends from '@/components/EnergyTrends';
 import AddEntryDialog from '@/components/AddEntryDialog';
 import { useEnergyData } from '@/hooks/useEnergyData';
 
+type TimePeriod = '3days' | 'week' | 'month' | 'year';
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+const TIME_PERIOD_WINDOWS: Record<TimePeriod, number> = {
+  '3days': 3 * DAY_MS,
+  week: 7 * DAY_MS,
+  month: 30 * DAY_MS,
+  year: 365 * DAY_MS,
+};
+
+const parseDate = (dateStr: string): Date => {
+  const parts = dateStr.split('.');
+  if (parts.length === 3) {
+    const day = parseInt(parts[0], 10);
+    const month = parseInt(parts[1], 10) - 1;
+    const year = parseInt(parts[2], 10);
+    return new Date(year, month, day);
+  }
+  return new Date(dateStr);
+};
+
 const Index = () => {
   const [showAddDialog, setShowAddDialog] = useState(false);
   const [activeTab, setActiveTab] = useState('home');
-  const [timePeriod, setTimePeriod] = useState<'3days' | 'week' | 'month' | 'year'>('week');
+  const [timePeriod, setTimePeriod] = useState<TimePeriod>('week');
   const [expandedEntry, setExpandedEntry] = useState<number | null>(null);
   const { data, isLoading, error, refetch } = useEnergyData();
-
-  useEffect(() => {
-    const interval = setInterval(() => {
-      refetch();
-    }, 5 * 60 * 1000);
-
-    return () => clearInterval(interval);
-  }, [refetch]);
 
   const getColorClass = (score: number) => {
     if (score >= 5) return 'energy-excellent';
@@ -32,76 +45,66 @@ const Index = () => {
     return 'energy-low';
   };
 
-  const parseDate = (dateStr: string): Date => {
-    const parts = dateStr.split('.');
-    if (parts.length === 3) {
-      const day = parseInt(parts[0], 10);
-      const month = parseInt(parts[1], 10) - 1;
-      const year = parseInt(parts[2], 10);
-      return new Date(year, month, day);
+  const filteredEntries = useMemo(() => {
+    if (!data?.entries) {
+      return [];
     }
-    return new Date(dateStr);
-  };
 
-  const getFilteredStats = () => {
-    if (!data?.entries) return { good: 0, neutral: 0, bad: 0, average: 0, total: 0 };
-    
-    console.log('All entries:', data.entries.map(e => ({ date: e.date, score: e.score })));
-    
-    let limit: number;
-    
-    switch (timePeriod) {
-      case '3days':
-        limit = 3;
-        break;
-      case 'week':
-        limit = 7;
-        break;
-      case 'month':
-        limit = 30;
-        break;
-      case 'year':
-        limit = 365;
-        break;
-      default:
-        limit = 7;
-    }
-    
-    // Берём последние N записей
-    const filtered = data.entries.slice(-limit);
-    
-    console.log('Filtered entries:', filtered.length, 'last', limit, 'records');
-    
-    const good = filtered.filter(e => e.score >= 4).length;
-    const neutral = filtered.filter(e => e.score === 3).length;
-    const bad = filtered.filter(e => e.score <= 2).length;
-    const total = filtered.length;
-    const average = total > 0 ? filtered.reduce((sum, e) => sum + e.score, 0) / total : 0;
-    
-    return { good, neutral, bad, average, total };
-  };
+    const windowSize = TIME_PERIOD_WINDOWS[timePeriod];
+    const now = Date.now();
 
-  const stats = getFilteredStats();
-  
-  // Отдельная статистика для месячной цели
-  const getMonthlyStats = () => {
-    if (!data?.entries) return { average: 0, total: 0 };
-    
-    const todayMs = Date.now();
-    const cutoffMs = todayMs - (30 * 24 * 60 * 60 * 1000);
-    
-    const monthlyEntries = data.entries.filter(e => {
-      const entryMs = parseDate(e.date).getTime();
-      return entryMs >= cutoffMs;
+    return data.entries.filter(entry => {
+      const timestamp = parseDate(entry.date).getTime();
+      if (Number.isNaN(timestamp)) {
+        return false;
+      }
+
+      return timestamp >= now - windowSize && timestamp <= now;
     });
-    
-    const total = monthlyEntries.length;
-    const average = total > 0 ? monthlyEntries.reduce((sum, e) => sum + e.score, 0) / total : 0;
-    
+  }, [data?.entries, timePeriod]);
+
+  const stats = useMemo(() => {
+    if (filteredEntries.length === 0) {
+      return { good: 0, neutral: 0, bad: 0, average: 0, total: 0 };
+    }
+
+    const totals = filteredEntries.reduce(
+      (acc, entry) => {
+        if (entry.score >= 4) acc.good += 1;
+        else if (entry.score === 3) acc.neutral += 1;
+        else acc.bad += 1;
+
+        acc.scoreSum += entry.score;
+        return acc;
+      },
+      { good: 0, neutral: 0, bad: 0, scoreSum: 0 }
+    );
+
+    const total = filteredEntries.length;
+    const average = total > 0 ? totals.scoreSum / total : 0;
+
+    return { good: totals.good, neutral: totals.neutral, bad: totals.bad, average, total };
+  }, [filteredEntries]);
+
+  // Отдельная статистика для месячной цели
+  const monthlyStats = useMemo(() => {
+    if (!data?.entries) {
+      return { average: 0, total: 0 };
+    }
+
+    const windowSize = TIME_PERIOD_WINDOWS.month;
+    const now = Date.now();
+    const relevantEntries = data.entries.filter(entry => {
+      const timestamp = parseDate(entry.date).getTime();
+      return !Number.isNaN(timestamp) && timestamp >= now - windowSize && timestamp <= now;
+    });
+
+    const total = relevantEntries.length;
+    const scoreSum = relevantEntries.reduce((sum, entry) => sum + entry.score, 0);
+    const average = total > 0 ? scoreSum / total : 0;
+
     return { average, total };
-  };
-  
-  const monthlyStats = getMonthlyStats();
+  }, [data?.entries]);
   const recentEntries = data?.entries?.slice(-3).reverse() || [];
 
   return (
