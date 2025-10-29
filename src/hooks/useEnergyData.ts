@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 
-const API_URL = 'https://functions.poehali.dev/0335f84a-22ea-47e1-ab0f-623e2884ffec';
+export const ENERGY_API_URL = 'https://functions.poehali.dev/0335f84a-22ea-47e1-ab0f-623e2884ffec';
 
 interface EnergyEntry {
   date: string;
@@ -28,12 +28,12 @@ export const useEnergyData = () => {
   return useQuery<EnergyData>({
     queryKey: ['energy-data'],
     queryFn: async () => {
-      const response = await fetch(API_URL);
+      const response = await fetch(ENERGY_API_URL);
       if (!response.ok) {
         throw new Error('Failed to fetch energy data');
       }
       return response.json();
     },
-    refetchInterval: 30000,
+    refetchInterval: 5 * 60 * 1000,
   });
 };
